@@ -1,0 +1,156 @@
+name: java-advanced
+
+services:
+  user-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: user_service_db
+      POSTGRES_USER: user_service
+      POSTGRES_PASSWORD: "${USER_DB_PASSWORD:?Set USER_DB_PASSWORD in .env}"
+    volumes:
+      - user_db:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  auth-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: authentication_service_db
+      POSTGRES_USER: auth_service
+      POSTGRES_PASSWORD: "${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}"
+    volumes:
+      - auth_db:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  user-service:
+    image: java-advanced-user-service:local
+    build:
+      context: ../user-service
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_URL: jdbc:postgresql://user-postgres:5432/user_service_db
+      DB_USERNAME: user_service
+      DB_PASSWORD: "${USER_DB_PASSWORD:?Set USER_DB_PASSWORD in .env}"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      AUTH_REGISTRATION_KEY: "${AUTH_REGISTRATION_KEY:?Set AUTH_REGISTRATION_KEY in .env}"
+      JWT_PUBLIC_KEY: file:/run/secrets/auth-public-key.pem
+    secrets:
+      - source: auth_public_key
+        target: auth-public-key.pem
+    depends_on:
+      user-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --max-time
+        - "3"
+        - http://localhost:8080/api/ping
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  auth-service:
+    image: java-advanced-authentication-service:local
+    build:
+      context: ../authentication-service
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      APP_PORT: "8081"
+      AUTH_DB_URL: jdbc:postgresql://auth-postgres:5432/authentication_service_db
+      AUTH_DB_USERNAME: auth_service
+      AUTH_DB_PASSWORD: "${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}"
+      AUTH_REGISTRATION_KEY: "${AUTH_REGISTRATION_KEY:?Set AUTH_REGISTRATION_KEY in .env}"
+      AUTH_BOOTSTRAP_ENABLED: "false"
+      JWT_PRIVATE_KEY: file:/run/secrets/auth-private-key.pem
+      JWT_PUBLIC_KEY: file:/run/secrets/auth-public-key.pem
+    secrets:
+      - source: auth_private_key
+        target: auth-private-key.pem
+      - source: auth_public_key
+        target: auth-public-key.pem
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --max-time
+        - "3"
+        - http://localhost:8081/api/ping
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  api-gateway:
+    image: java-advanced-api-gateway:local
+    build:
+      context: .
+    ports:
+      - "127.0.0.1:8082:8082"
+    environment:
+      APP_PORT: "8082"
+      USER_SERVICE_URL: http://user-service:8080
+      AUTH_SERVICE_URL: http://auth-service:8081
+      AUTH_REGISTRATION_KEY: "${AUTH_REGISTRATION_KEY:?Set AUTH_REGISTRATION_KEY in .env}"
+      JWT_PUBLIC_KEY: file:/run/secrets/auth-public-key.pem
+    secrets:
+      - source: auth_public_key
+        target: auth-public-key.pem
+    depends_on:
+      user-service:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl --silent --max-time 3 --output /dev/null
+          --write-out '%{http_code}'
+          http://localhost:8082/api/v1/users | grep -q '^401$'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  user_db:
+  auth_db:
+
+secrets:
+  auth_private_key:
+    file: ../authentication-service/secrets/private-key.pem
+  auth_public_key:
+    file: ../authentication-service/secrets/public-key.pem
