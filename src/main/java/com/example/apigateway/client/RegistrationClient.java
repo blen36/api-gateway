@@ -1,15 +1,17 @@
 package com.example.apigateway.client;
 
-import com.example.apigateway.dto.RegistrationDtos.*;
+import com.example.apigateway.dto.RegistrationDtos.CredentialsRequest;
+import com.example.apigateway.dto.RegistrationDtos.RegistrationRequest;
+import com.example.apigateway.dto.RegistrationDtos.UserCreateRequest;
+import com.example.apigateway.dto.RegistrationDtos.UserProfile;
 import io.netty.channel.ChannelOption;
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
-
-import java.time.Duration;
 
 @Component
 public class RegistrationClient {
@@ -87,7 +89,7 @@ public class RegistrationClient {
         );
 
         return auth.post()
-                .uri("/api/v1/auth/credentials")
+                .uri("/api/auth/credentials")
                 .bodyValue(body)
                 .retrieve()
                 .toBodilessEntity()

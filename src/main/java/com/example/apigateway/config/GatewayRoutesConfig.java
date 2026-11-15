@@ -16,13 +16,16 @@ public class GatewayRoutesConfig {
             @Value("${gateway.services.auth-url}") String authServiceUrl
     ) {
         return builder.routes()
-
                 .route("authentication-service", route -> route
                         .path(
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/validate"
                         )
+                        .filters(filters -> filters.rewritePath(
+                                "^/api/v1/(?<rest>.*)$",
+                                "/api/${rest}"
+                        ))
                         .uri(authServiceUrl))
 
                 .route("user-service", route -> route
@@ -32,6 +35,10 @@ public class GatewayRoutesConfig {
                                 "/api/v1/cards",
                                 "/api/v1/cards/**"
                         )
+                        .filters(filters -> filters.rewritePath(
+                                "^/api/v1/(?<rest>.*)$",
+                                "/api/${rest}"
+                        ))
                         .uri(userServiceUrl))
 
                 .build();
