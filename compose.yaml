@@ -10,9 +10,7 @@ services:
     volumes:
       - user_db:/var/lib/postgresql/data
     healthcheck:
-      test:
-        - CMD-SHELL
-        - 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -26,9 +24,21 @@ services:
     volumes:
       - auth_db:/var/lib/postgresql/data
     healthcheck:
-      test:
-        - CMD-SHELL
-        - 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  order-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: "${ORDER_DB_NAME:-order_service_db}"
+      POSTGRES_USER: "${ORDER_DB_USER:-order_app}"
+      POSTGRES_PASSWORD: "${ORDER_DB_PASSWORD:?Set ORDER_DB_PASSWORD in .env}"
+    volumes:
+      - order_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -47,12 +57,14 @@ services:
     build:
       context: ../user-service
     environment:
+      SERVER_PORT: "8080"
       SPRING_PROFILES_ACTIVE: docker
       DB_URL: jdbc:postgresql://user-postgres:5432/user_service_db
       DB_USERNAME: user_service
       DB_PASSWORD: "${USER_DB_PASSWORD:?Set USER_DB_PASSWORD in .env}"
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      AUTH_JWKS_URI: http://auth-service:8081/.well-known/jwks.json
       AUTH_REGISTRATION_KEY: "${AUTH_REGISTRATION_KEY:?Set AUTH_REGISTRATION_KEY in .env}"
       JWT_PUBLIC_KEY: file:/run/secrets/auth-public-key.pem
     secrets:
@@ -64,14 +76,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test:
-        - CMD
-        - curl
-        - --fail
-        - --silent
-        - --max-time
-        - "3"
-        - http://localhost:8080/api/ping
+      test: ["CMD-SHELL", "curl -s --max-time 3 -o /dev/null -w '%{http_code}' 'http://localhost:8080/api/order-users?id=1' | grep -qx 401"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -84,6 +89,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       APP_PORT: "8081"
+      USER_SERVICE_URL: http://user-service:8080
       AUTH_DB_URL: jdbc:postgresql://auth-postgres:5432/authentication_service_db
       AUTH_DB_USERNAME: auth_service
       AUTH_DB_PASSWORD: "${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}"
@@ -100,14 +106,34 @@ services:
       auth-postgres:
         condition: service_healthy
     healthcheck:
-      test:
-        - CMD
-        - curl
-        - --fail
-        - --silent
-        - --max-time
-        - "3"
-        - http://localhost:8081/api/ping
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "3", "http://localhost:8081/api/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  order-service:
+    image: java-advanced-order-service:local
+    build:
+      context: ../order-service
+    environment:
+      ORDER_PORT: "8083"
+      ORDER_DB_HOST: order-postgres
+      ORDER_DB_PORT: "5432"
+      ORDER_DB_NAME: "${ORDER_DB_NAME:-order_service_db}"
+      ORDER_DB_USER: "${ORDER_DB_USER:-order_app}"
+      ORDER_DB_PASSWORD: "${ORDER_DB_PASSWORD:?Set ORDER_DB_PASSWORD in .env}"
+      USER_SERVICE_URL: http://user-service:8080
+      AUTH_JWKS_URI: http://auth-service:8081/.well-known/jwks.json
+    depends_on:
+      order-postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s --max-time 3 -o /dev/null -w '%{http_code}' http://localhost:8083/api/v1/orders | grep -qx 401"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -123,23 +149,21 @@ services:
       APP_PORT: "8082"
       USER_SERVICE_URL: http://user-service:8080
       AUTH_SERVICE_URL: http://auth-service:8081
+      ORDER_SERVICE_URL: http://order-service:8083
       AUTH_REGISTRATION_KEY: "${AUTH_REGISTRATION_KEY:?Set AUTH_REGISTRATION_KEY in .env}"
       JWT_PUBLIC_KEY: file:/run/secrets/auth-public-key.pem
     secrets:
       - source: auth_public_key
         target: auth-public-key.pem
     depends_on:
-      user-service:
-        condition: service_healthy
       auth-service:
         condition: service_healthy
+      user-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          curl --silent --max-time 3 --output /dev/null
-          --write-out '%{http_code}'
-          http://localhost:8082/api/v1/users | grep -q '^401$'
+      test: ["CMD-SHELL", "curl -s --max-time 3 -o /dev/null -w '%{http_code}' http://localhost:8082/api/v1/users | grep -qx 401"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -148,6 +172,7 @@ services:
 volumes:
   user_db:
   auth_db:
+  order_db:
 
 secrets:
   auth_private_key:

@@ -1,5 +1,6 @@
 package com.example.apigateway;
 
+import com.example.apigateway.config.JwtConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -12,8 +13,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
-
-import com.example.apigateway.config.JwtConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,13 +42,10 @@ class ApiGatewayApplicationTests {
 	void setUp() throws Exception {
 		keyPair = generateKeyPair();
 
-		String encodedPublicKey = Base64.getMimeEncoder(
-				64,
-				new byte[]{'\n'}
-		).encodeToString(keyPair.getPublic().getEncoded());
+		String encodedPublicKey = Base64.getMimeEncoder(64, new byte[]{'\n'})
+				.encodeToString(keyPair.getPublic().getEncoded());
 
 		Path publicKeyFile = tempDirectory.resolve("public-key.pem");
-
 		Files.writeString(
 				publicKeyFile,
 				"-----BEGIN PUBLIC KEY-----\n"
@@ -66,8 +62,7 @@ class ApiGatewayApplicationTests {
 
 	@Test
 	void acceptsValidAccessToken() {
-		Jwt jwt = decode(token(keyPair, claims -> {
-		}));
+		Jwt jwt = decode(token(keyPair, claims -> {}));
 
 		assertNotNull(jwt);
 		assertEquals("10", jwt.getSubject());
@@ -87,44 +82,35 @@ class ApiGatewayApplicationTests {
 
 	@Test
 	void rejectsRefreshToken() {
-		String token = token(keyPair, claims ->
-				claims.claim("tokenType", "refresh")
-		);
+		String token = token(keyPair, claims -> claims.claim("tokenType", "refresh"));
 
 		assertThrows(JwtException.class, () -> decode(token));
 	}
 
 	@Test
 	void rejectsWrongIssuer() {
-		String token = token(keyPair, claims ->
-				claims.issuer("another-service")
-		);
+		String token = token(keyPair, claims -> claims.issuer("another-service"));
 
 		assertThrows(JwtException.class, () -> decode(token));
 	}
 
 	@Test
 	void rejectsWrongAudience() {
-		String token = token(keyPair, claims ->
-				claims.audience(List.of("another-api"))
-		);
+		String token = token(keyPair, claims -> claims.audience(List.of("another-api")));
 
 		assertThrows(JwtException.class, () -> decode(token));
 	}
 
 	@Test
 	void rejectsWrongSignature() throws Exception {
-		String token = token(generateKeyPair(), claims -> {
-		});
+		String token = token(generateKeyPair(), claims -> {});
 
 		assertThrows(JwtException.class, () -> decode(token));
 	}
 
 	@Test
 	void rejectsMismatchedUserId() {
-		String token = token(keyPair, claims ->
-				claims.claim("userId", 20L)
-		);
+		String token = token(keyPair, claims -> claims.claim("user_id", 20L));
 
 		assertThrows(JwtException.class, () -> decode(token));
 	}
@@ -147,7 +133,7 @@ class ApiGatewayApplicationTests {
 				.issuedAt(now.minusSeconds(1))
 				.notBefore(now.minusSeconds(1))
 				.expiresAt(now.plusSeconds(300))
-				.claim("userId", 10L)
+				.claim("user_id", 10L)
 				.claim("role", "USER")
 				.claim("tokenType", "access");
 
@@ -158,14 +144,12 @@ class ApiGatewayApplicationTests {
 				(RSAPrivateKey) signingKeyPair.getPrivate()
 		).build();
 
-		JwsHeader header = JwsHeader
-				.with(SignatureAlgorithm.RS256)
+		JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256)
 				.type("JWT")
 				.build();
 
-		return encoder.encode(
-				JwtEncoderParameters.from(header, claims.build())
-		).getTokenValue();
+		return encoder.encode(JwtEncoderParameters.from(header, claims.build()))
+				.getTokenValue();
 	}
 
 	private KeyPair generateKeyPair() throws Exception {

@@ -29,7 +29,6 @@ public class JwtConfig {
             @Value("${gateway.jwt.issuer}") String issuer,
             @Value("${gateway.jwt.audience}") String audience
     ) throws IOException {
-
         RSAPublicKey publicKey;
 
         try (var input = publicKeyResource.getInputStream()) {
@@ -61,12 +60,9 @@ public class JwtConfig {
         return decoder;
     }
 
-    private OAuth2TokenValidatorResult validateClaims(
-            Jwt jwt,
-            String audience
-    ) {
+    private OAuth2TokenValidatorResult validateClaims(Jwt jwt, String audience) {
         try {
-            Object userId = jwt.getClaim("userId");
+            Object userId = jwt.getClaim("user_id");
             String subject = jwt.getSubject();
             String role = jwt.getClaimAsString("role");
 
@@ -89,15 +85,11 @@ public class JwtConfig {
                 return OAuth2TokenValidatorResult.success();
             }
         } catch (RuntimeException ignored) {
-            // Malformed claims must produce 401, not a server error.
+            // Invalid claim types are handled as an invalid token.
         }
 
         return OAuth2TokenValidatorResult.failure(
-                new OAuth2Error(
-                        "invalid_token",
-                        "Invalid access token claims",
-                        null
-                )
+                new OAuth2Error("invalid_token", "Invalid access token claims", null)
         );
     }
 }
